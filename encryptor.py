@@ -7,76 +7,69 @@ from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Random import get_random_bytes
 
+
 def enc(data, password):
-    """Encrypt data using AES-GCM with PBKDF2 key derivation"""
+    """Encrypt data using AES-GCM with PBKDF2 key derivation."""
     data = data.encode()
-    # Derive key
-    salt = get_random_bytes(16)  # random salt, store this
+    salt = get_random_bytes(16)
     key = PBKDF2(password, salt, dkLen=32)
-    # Encrypt
     cipher = AES.new(key, AES.MODE_GCM)
     ciphertext, tag = cipher.encrypt_and_digest(data)
-    # Combine salt + nonce + tag + ciphertext
     encrypted_blob = salt + cipher.nonce + tag + ciphertext
-    # Encode to base64 for storage/transmission
     encrypted_b64 = base64.b64encode(encrypted_blob).decode()
     return encrypted_b64
 
+
 def denc(data, password):
-    """Decrypt data using AES-GCM with PBKDF2 key derivation"""
-    # Decode from base64 to binary
-    raw = base64.b64decode(data)  # decode before splitting
-    # Extract parts
+    """Decrypt data using AES-GCM with PBKDF2 key derivation."""
+    raw = base64.b64decode(data)
     salt, nonce, tag, ciphertext = raw[:16], raw[16:32], raw[32:48], raw[48:]
     key = PBKDF2(password, salt, dkLen=32)
-    # Decrypt
     cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
     plaintext = cipher.decrypt_and_verify(ciphertext, tag)
     return plaintext.decode()
 
+
 def has_header_row(csv_path):
-    """Check if CSV file has a header row by examining first row"""
+    """Check if CSV file has a header row by examining the first row."""
     try:
         with open(csv_path, 'r', encoding='utf-8', newline='') as file:
             reader = csv.reader(file)
             first_row = next(reader, None)
             if first_row:
-                # Browser password export headers
-                browser_headers = ['url', 'username', 'password', 'httprealm', 'formactionorigin', 'guid', 'timecreated', 'timelastused', 'timepasswordchanged']
+                browser_headers = [
+                    'url', 'username', 'password', 'httprealm', 'formactionorigin',
+                    'guid', 'timecreated', 'timelastused', 'timepasswordchanged'
+                ]
                 return any(header.lower() in [cell.lower() for cell in first_row] for header in browser_headers)
     except Exception:
         pass
     return False
 
+
 def process_csv_for_encryption(csv_path):
-    """Read CSV file, extract ONLY url, username, password fields and create clean CSV data"""
+    """Read CSV and keep only url, username, password fields."""
     try:
         data_rows = []
-        
+
         with open(csv_path, 'r', encoding='utf-8', newline='') as file:
             reader = csv.reader(file)
             rows = list(reader)
-        
+
         if not rows:
             return "[]"
-        
-        # Check if we need to remove header and find column indices
+
         if has_header_row(csv_path) and rows:
             header = [cell.lower().strip() for cell in rows[0]]
             data_start = 1
         else:
-            # Assume standard browser export order: url, username, password, httpRealm, formActionOrigin, guid, timeCreated, timeLastUsed, timePasswordChanged
             header = ['url', 'username', 'password', 'httprealm', 'formactionorigin', 'guid', 'timecreated', 'timelastused', 'timepasswordchanged']
             data_start = 0
-        
-        # Find indices for url, username, password
+
         url_idx = None
         username_idx = None
         password_idx = None
-        
-        # Print header for debugging
-        print(f"DEBUG: Detected header: {header}")
-        
+
         for i, col in enumerate(header):
             col_lower = col.lower().strip()
             if col_lower == 'url':
@@ -85,25 +78,17 @@ def process_csv_for_encryption(csv_path):
                 username_idx = i
             elif col_lower == 'password':
                 password_idx = i
-        
-        # If we can't find the columns, assume standard browser order: url(0), username(1), password(2)
+
         if url_idx is None:
             url_idx = 0
-            print("WARNING: URL column not found, assuming index 0")
         if username_idx is None:
             username_idx = 1
-            print("WARNING: Username column not found, assuming index 1")
         if password_idx is None:
             password_idx = 2
-            print("WARNING: Password column not found, assuming index 2")
-        
-        print(f"DEBUG: Using indices - URL: {url_idx}, Username: {username_idx}, Password: {password_idx}")
-        
-        # Add clean header row with only the 3 fields we want
+
         clean_header = ["url", "username", "password"]
         data_rows.append(clean_header)
-        
-        # Extract only url, username, password from each data row
+
         for row in rows[data_start:]:
             if len(row) > max(url_idx, username_idx, password_idx):
                 extracted_row = [
@@ -112,148 +97,188 @@ def process_csv_for_encryption(csv_path):
                     row[password_idx] if password_idx < len(row) else ""
                 ]
                 data_rows.append(extracted_row)
-                
-                # Debug first few rows
-                if len(data_rows) <= 3:
-                    print(f"DEBUG: Row {len(data_rows)} - URL: '{extracted_row[0]}', Username: '{extracted_row[1]}', Password: '{extracted_row[2][:10]}...'")
-        
-        print(f"DEBUG: Processed {len(data_rows)-1} data rows (plus header)")
-        
-        # Convert list of lists to string representation
-        list_string = str(data_rows)
-        
-        return list_string
+
+        return str(data_rows)
     except Exception as e:
         print(f"Error reading CSV file: {e}")
         return None
 
-def encrypt_passwords():
-    """Encrypt password CSV file"""
-    csv_path = input("Enter path to CSV file: ").strip()
-    
-    if not os.path.exists(csv_path):
-        print("Error: File not found!")
-        return
-    
-    # Read and process CSV
+
+def encrypt_text(text, password):
+    """Encrypt any text payload using the app's AES-GCM encryption."""
+    return enc(text, password)
+
+
+def decrypt_text(encrypted_text, password):
+    """Decrypt any text payload using the app's AES-GCM encryption."""
+    return denc(encrypted_text, password)
+
+
+def write_text_file(path, content):
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+
+def read_text_file(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        return f.read()
+
+
+def encrypt_passwords_csv(csv_path, output_path="enc_password.txt"):
+    """Encrypt a password-export CSV to a text blob."""
     csv_content = process_csv_for_encryption(csv_path)
     if csv_content is None:
-        return
-    
-    # Get password
+        return False
+
     password = getpass("Enter encryption password: ")
     if not password:
         print("Error: Password cannot be empty!")
-        return
-    
-    try:
-        # Encrypt the content
-        encrypted_data = enc(csv_content, password)
-        
-        # Write to file
-        with open('enc_password.txt', 'w') as f:
-            f.write(encrypted_data)
-        
-        print("✓ Passwords encrypted successfully!")
-        print("✓ Encrypted data saved to: enc_password.txt")
-        print(f"✓ Original file processed - only URL, Username, Password fields retained")
-        print(f"✓ All other headers and data columns removed before encryption")
-        
-    except Exception as e:
-        print(f"Error during encryption: {e}")
+        return False
 
-def decrypt_passwords():
-    """Decrypt password file and convert back to CSV with full browser headers"""
-    file_path = input("Enter path to encrypted file: ").strip()
-    
-    if not os.path.exists(file_path):
-        print("Error: File not found!")
-        return
-    
+    encrypted_data = enc(csv_content, password)
+    write_text_file(output_path, encrypted_data)
+    print("✓ Passwords encrypted successfully!")
+    print(f"✓ Encrypted data saved to: {output_path}")
+    return True
+
+
+def decrypt_passwords_csv(file_path, output_path="passwords.csv"):
+    """Decrypt a password-export blob back to a CSV with browser-like headers."""
     try:
-        # Read encrypted data
-        with open(file_path, 'r') as f:
-            encrypted_data = f.read().strip()
-        
-        # Get password
+        encrypted_data = read_text_file(file_path).strip()
         password = getpass("Enter decryption password: ")
         if not password:
             print("Error: Password cannot be empty!")
-            return
-        
-        # Decrypt
+            return False
+
         decrypted_content = denc(encrypted_data, password)
-        
-        # Convert string representation back to list of lists
         import ast
         data_rows = ast.literal_eval(decrypted_content)
-        
-        # Remove the clean header from decrypted data (first row)
+
         if data_rows and data_rows[0] == ["url", "username", "password"]:
-            password_data = data_rows[1:]  # Skip the clean header
+            password_data = data_rows[1:]
         else:
             password_data = data_rows
-        
-        # Add browser-compatible header row (actual browser export format)
-        full_header = ["url", "username", "password", "httpRealm", "formActionOrigin", "guid", "timeCreated", "timeLastUsed", "timePasswordChanged"]
-        
-        # Write to CSV file with full browser headers
-        with open('passwords.csv', 'w', encoding='utf-8', newline='') as f:
+
+        full_header = [
+            "url", "username", "password", "httpRealm", "formActionOrigin", "guid",
+            "timeCreated", "timeLastUsed", "timePasswordChanged"
+        ]
+
+        with open(output_path, 'w', encoding='utf-8', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(full_header)  # Write full browser header
-            
-            # Write data rows with proper column mapping
+            writer.writerow(full_header)
+
             for row in password_data:
                 if len(row) >= 3:
-                    # row contains [url, username, password]
-                    # Map to [url, username, password, httpRealm, formActionOrigin, guid, timeCreated, timeLastUsed, timePasswordChanged]
-                    full_row = [
-                        row[0],  # url
-                        row[1],  # username
-                        row[2],  # password
-                        "",      # httpRealm (empty)
-                        "",      # formActionOrigin (empty)
-                        "",      # guid (empty)
-                        "",      # timeCreated (empty)
-                        "",      # timeLastUsed (empty)
-                        ""       # timePasswordChanged (empty)
-                    ]
-                    writer.writerow(full_row)
-        
+                    writer.writerow([
+                        row[0],
+                        row[1],
+                        row[2],
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        ""
+                    ])
+
         print("✓ Passwords decrypted successfully!")
-        print("✓ Decrypted CSV saved to: passwords.csv")
-        print(f"✓ File contains {len(password_data)} rows of password data")
-        print("✓ CSV has all browser headers: URL, Username, Password fields filled; others empty")
-        
+        print(f"✓ Decrypted CSV saved to: {output_path}")
+        return True
     except Exception as e:
         print(f"Error during decryption: {e}")
         print("This could be due to wrong password or corrupted data.")
+        return False
+
+
+def encrypt_notes_file(input_path, output_path="enc_notes.txt"):
+    """Encrypt a plain text notes file."""
+    if not os.path.exists(input_path):
+        print("Error: File not found!")
+        return False
+
+    password = getpass("Enter encryption password: ")
+    if not password:
+        print("Error: Password cannot be empty!")
+        return False
+
+    content = read_text_file(input_path)
+    encrypted = enc(content, password)
+    write_text_file(output_path, encrypted)
+    print("✓ Notes encrypted successfully!")
+    print(f"✓ Encrypted data saved to: {output_path}")
+    return True
+
+
+def decrypt_notes_file(input_path, output_path="notes.txt"):
+    """Decrypt a notes file previously encrypted by this tool."""
+    if not os.path.exists(input_path):
+        print("Error: File not found!")
+        return False
+
+    password = getpass("Enter decryption password: ")
+    if not password:
+        print("Error: Password cannot be empty!")
+        return False
+
+    try:
+        encrypted_data = read_text_file(input_path).strip()
+        decrypted = denc(encrypted_data, password)
+        write_text_file(output_path, decrypted)
+        print("✓ Notes decrypted successfully!")
+        print(f"✓ Decrypted notes saved to: {output_path}")
+        return True
+    except Exception as e:
+        print(f"Error during decryption: {e}")
+        print("This could be due to wrong password or corrupted data.")
+        return False
+
 
 def main():
-    """Main program loop"""
-    print("Password CSV Encryptor/Decryptor - Clean Version")
-    print("=" * 45)
-    print("Encryption: Removes all headers except URL, Username, Password")
-    print("Decryption: Restores full browser headers (extras empty)")
-    print("All other columns and their data are removed during encryption")
-    
+    """Main CLI menu for password and notes encryption/decryption."""
+    print("GitPass CLI - Encrypt/Decrypt Passwords and Notes")
+    print("=" * 52)
+
     while True:
         print("\nOptions:")
-        print("1. Encrypt CSV file (clean headers)")
-        print("2. Decrypt file")
-        print("3. Exit")
-        
-        choice = input("\nEnter your choice (1-3): ").strip()
-        
+        print("1. Encrypt password CSV")
+        print("2. Decrypt password CSV")
+        print("3. Encrypt notes file")
+        print("4. Decrypt notes file")
+        print("5. Exit")
+
+        choice = input("\nEnter your choice (1-5): ").strip()
+
         if choice == '1':
-            encrypt_passwords()
+            csv_path = input("Enter path to CSV file: ").strip()
+            if os.path.exists(csv_path):
+                encrypt_passwords_csv(csv_path)
+            else:
+                print("Error: File not found!")
+
         elif choice == '2':
-            decrypt_passwords()
+            file_path = input("Enter path to encrypted file: ").strip()
+            if os.path.exists(file_path):
+                decrypt_passwords_csv(file_path)
+            else:
+                print("Error: File not found!")
+
         elif choice == '3':
+            input_path = input("Enter path to plain notes file: ").strip()
+            encrypt_notes_file(input_path)
+
+        elif choice == '4':
+            input_path = input("Enter path to encrypted notes file: ").strip()
+            decrypt_notes_file(input_path)
+
+        elif choice == '5':
             print("Goodbye!")
             break
+
         else:
-            print("Invalid choice. Please enter 1, 2, or 3.")
+            print("Invalid choice. Please enter 1, 2, 3, 4, or 5.")
+
 
 if __name__ == "__main__":
     try:
